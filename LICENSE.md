@@ -1,4 +1,4 @@
-Inveigh is provided under the 3-clause BSD license below.
+Irken is provided under the 3-clause BSD license below.
 
 *************************************************************
 
