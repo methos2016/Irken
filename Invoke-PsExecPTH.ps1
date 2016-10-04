@@ -12,7 +12,7 @@ Hostname or IP address of target.
 Username to use for PsExec authentication. The user must be a local administrator on the target.
 
 .PARAMETER Domain
-Domain ot hostname to use for PsExec authentication.
+Domain or hostname to use for PsExec authentication.
 
 .PARAMETER Hash
 NTLM password hash for PsExec authentication. This module will accept either LM:NTLM or NTLM format.
